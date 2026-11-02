@@ -114,6 +114,7 @@ jobs:
           Copy-Item packaging/DIST_README.txt dist/GBVMonitor/README.txt -Force
           New-Item -ItemType Directory -Force -Path dist/GBVMonitor/output | Out-Null
           New-Item -ItemType Directory -Force -Path dist/parts | Out-Null
+          Copy-Item packaging/README-EXE.md dist/parts/HOW-TO-INSTALL.md -Force
 
           function Split-Zip {
             param([string]$Zip, [long]$ChunkSize = 1500MB)
@@ -189,13 +190,22 @@ jobs:
           name: Portable GBV Monitor bundle (run ${{ github.run_number }})
           draft: true
           fail_on_unmatched_files: true
-          files: |
-            dist/parts/GBVMonitor-full.zip.*
-            dist/parts/GBVMonitor-app-no-model.zip.*
-            dist/parts/GBVMonitor-models.zip.*
-            dist/parts/GBVMonitor-full.zip
-            dist/parts/GBVMonitor-app-no-model.zip
-            dist/parts/GBVMonitor-models.zip
+          # publish WHATEVER actually ended up in dist/parts (small zips stay
+          # whole; big ones become .001/.002 parts) — a static mixed list would
+          # always fail: after splitting, a zip exists as base OR parts, not both
+          files: dist/parts/*
+          body: |
+            ## Install (Windows 10/11 x64)
+            1. Download **all** attached parts into ONE folder (and `HOW-TO-INSTALL.md`).
+            2. Reassemble, Windows CMD:
+            ```
+            copy /b GBVMonitor-full.zip.001+GBVMonitor-full.zip.002+… GBVMonitor-full.zip
+            ```
+            (same pattern for `-app-no-model` / `-models` if you downloaded those instead)
+            3. Extract the zip (right-click → Extract All) and double-click **GBVMonitor.exe**
+            — the built-in local model loads (15–90 s) and the interface opens in your browser.
+
+            Everything runs locally on your machine; no cloud, no account.
 
       - name: Job summary (how to assemble)
         if: always()
