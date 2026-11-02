@@ -1,6 +1,6 @@
 ; Inno Setup script — optional single-installer packaging of the portable bundle.
 ; Build the portable folder first (packaging\build_windows.ps1), then:
-;   1. install Inno Setup 6 (https://jrsoftware.org/isinfo.php)
+;   1. install Inno Setup 6 or 7 (https://jrsoftware.org/isinfo.php)
 ;   2. compile this file with ISCC.exe or the Inno Studio GUI (Build → Compile / F9)
 ;
 ; Output: dist\installer\GBVMonitor-setup.exe — for bundles > ~1.9 GB the output is
@@ -14,6 +14,9 @@
 ; Sources resolve against the PROJECT ROOT (script lives in packaging\), no matter
 ; how ISCC is invoked (GUI or CLI).
 SourceDir=..
+; Installer + uninstaller icon (CWD-independent: {#SourcePath} = this .iss folder).
+; Shortcut icons inherit the app icon from GBVMonitor.exe (set in gbv_monitor.spec).
+SetupIconFile={#SourcePath}\icon.ico
 AppName=GBV Monitor
 AppVersion=1.0.0
 AppCopyright=For civil-society / NGO use

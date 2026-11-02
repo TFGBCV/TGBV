@@ -89,6 +89,7 @@ exe = EXE(
     debug=False,
     strip=False,
     upx=False,
+    icon=os.path.join(SPECPATH, "icon.ico"),  # exe + shortcut icon (packaging/icon.ico)
     console=True,        # visible console on purpose: model loading progress & errors
     disable_windowed_traceback=False,
 )
