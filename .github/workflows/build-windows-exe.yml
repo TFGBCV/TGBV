@@ -76,9 +76,18 @@ jobs:
           python packaging/fetch_assets.py @fa
 
       - name: Install bundled Chromium
+        shell: pwsh
         run: |
           echo "PLAYWRIGHT_BROWSERS_PATH=$PWD/bundle-browsers" >> $env:GITHUB_ENV
+          # GITHUB_ENV only takes effect in LATER steps — the call below runs in
+          # THIS step, so set the variable in-process as well, else Playwright
+          # downloads into the default %LOCALAPPDATA%\ms-playwright cache.
+          $env:PLAYWRIGHT_BROWSERS_PATH = "$PWD\bundle-browsers"
           python -m playwright install chromium
+          if (!(Test-Path "$PWD\bundle-browsers")) {
+            throw "playwright did not install into bundle-browsers\ (check the output above)"
+          }
+          Write-Host "[chromium] bundle-browsers contains: $((Get-ChildItem "$PWD\bundle-browsers").Name -join ', ')"
 
       - name: PyInstaller
         run: python -m PyInstaller packaging/gbv_monitor.spec --noconfirm
