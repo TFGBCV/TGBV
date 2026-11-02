@@ -1,0 +1,186 @@
+name: build-windows-exe
+
+# Builds the portable "no-install" Windows bundle:
+#   dist/GBVMonitor/GBVMonitor.exe + bundled llama.cpp engine + the chosen GGUF
+#   model + bundled Chromium. Produces:
+#     * GBVMonitor-app-no-model.zip   — the app WITHOUT the AI model (<2 GB)
+#     * GBVMonitor-models.zip.001..N  — the model split into <=1.5 GB parts
+#     * (optional draft GitHub release with the FULL bundle, split parts)
+#
+# Recombining parts on Windows:  copy /b GBVMonitor-models.zip.001+GBVMonitor-models.zip.002+... GBVMonitor-models.zip
+# then unzip both next to each other into ONE folder and run GBVMonitor.exe.
+
+on:
+  workflow_dispatch:
+    inputs:
+      chat_prefix:
+        description: "GGUF prefix to bundle (ggml-org/Qwen2.5-VL-7B-Instruct-GGUF). Example alternatives: Qwen2.5-7B-Instruct-Q4_K_M (from Qwen/Qwen2.5-7B-Instruct-GGUF, text-only)"
+        required: false
+        default: "Qwen2.5-VL-7B-Instruct-Q4_K_M"
+      no_vision:
+        description: "Omit the mmproj vision tower (~1.3 GB smaller; image screening disabled)"
+        type: boolean
+        required: false
+        default: false
+      backends:
+        description: "llama.cpp engines to ship (cpu is always included)"
+        required: false
+        default: "cpu,vulkan"
+      publish_release:
+        description: "Also create a DRAFT GitHub release containing the full bundle"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      CHAT_PREFIX: ${{ inputs.chat_prefix || 'Qwen2.5-VL-7B-Instruct-Q4_K_M' }}
+      NO_VISION: ${{ inputs.no_vision == true && '1' || '' }}
+      BACKENDS: ${{ inputs.backends || 'cpu,vulkan' }}
+      PUBLISH_RELEASE: ${{ inputs.publish_release == true && '1' || '' }}
+      # Windows runners default to cp1252; make every Python process UTF-8 safe
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r packaging/requirements-build.txt
+
+      - name: Fetch engine + models
+        shell: pwsh
+        run: |
+          $fa = @("--dest", ".",
+                   "--backends", "$env:BACKENDS",
+                   "--chat-repo", "ggml-org/Qwen2.5-VL-7B-Instruct-GGUF",
+                   "--chat-prefix", "$env:CHAT_PREFIX",
+                   "--embed-repo", "nomic-ai/nomic-embed-text-v1.5-GGUF",
+                   "--embed-file", "nomic-embed-text-v1.5.Q8_0.gguf")
+          if ($env:NO_VISION -eq "1") { $fa += "--no-vision" }
+          python packaging/fetch_assets.py @fa
+
+      - name: Install bundled Chromium
+        run: |
+          echo "PLAYWRIGHT_BROWSERS_PATH=$PWD/bundle-browsers" >> $env:GITHUB_ENV
+          python -m playwright install chromium
+
+      - name: PyInstaller
+        run: python -m PyInstaller packaging/gbv_monitor.spec --noconfirm
+
+      - name: Assemble distribution folder + zips
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (!(Test-Path "dist/GBVMonitor/GBVMonitor.exe")) { throw "GBVMonitor.exe missing — check PyInstaller step" }
+
+          robocopy runtime dist/GBVMonitor/runtime /E /NFL /NDL /NJH /NJS /NP | Out-Null
+          robocopy models  dist/GBVMonitor/models  /E /NFL /NDL /NJH /NJS /NP | Out-Null
+          robocopy bundle-browsers dist/GBVMonitor/ms-playwright /E /NFL /NDL /NJH /NJS /NP | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+          Copy-Item packaging/DIST_README.txt dist/GBVMonitor/README.txt -Force
+          New-Item -ItemType Directory -Force -Path dist/GBVMonitor/output | Out-Null
+          New-Item -ItemType Directory -Force -Path dist/parts | Out-Null
+
+          function Split-Zip {
+            param([string]$Zip, [long]$ChunkSize = 1500MB)
+            $size = (Get-Item $Zip).Length
+            if ($size -le $ChunkSize) { return }
+            Write-Host ("[split] {0} ({1:N2} GB)" -f $Zip, ($size / 1GB))
+            $fs = [IO.File]::OpenRead($Zip)
+            $buf = New-Object byte[] (64MB)
+            $n = 0
+            try {
+              while ($fs.Position -lt $size) {
+                $n++
+                $out = "$Zip.$('{0:d3}' -f $n)"
+                $outFs = [IO.File]::Create($out)
+                try {
+                  $remaining = $ChunkSize
+                  while ($remaining -gt 0) {
+                    $want = [int][Math]::Min([int64]$buf.Length, $remaining)
+                    $read = $fs.Read($buf, 0, $want)
+                    if ($read -le 0) { break }
+                    $outFs.Write($buf, 0, $read)
+                    $remaining -= $read
+                  }
+                } finally { $outFs.Close() }
+              }
+            } finally { $fs.Close() }
+            Remove-Item $Zip -Force
+          }
+
+          # ---- model pack (separate so the app zip stays small)
+          Compress-Archive -Path dist/GBVMonitor/models -DestinationPath dist/parts/GBVMonitor-models.zip -Force -CompressionLevel Fastest
+          Split-Zip -Zip dist/parts/GBVMonitor-models.zip
+
+          # ---- app without model (exe + engine + chromium + python runtime)
+          $appPaths = @(Get-ChildItem dist/GBVMonitor | Where-Object { $_.Name -ne "models" } | ForEach-Object { $_.FullName })
+          Compress-Archive -Path $appPaths -DestinationPath dist/parts/GBVMonitor-app-no-model.zip -Force -CompressionLevel Fastest
+          Split-Zip -Zip dist/parts/GBVMonitor-app-no-model.zip
+          Get-ChildItem dist/parts | ForEach-Object { Write-Host ("[parts] {0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB)) }
+
+          # ---- full bundle zip (for the release) — runner disk is large enough
+          Compress-Archive -Path "dist/GBVMonitor/*" -DestinationPath dist/parts/GBVMonitor-full.zip -Force -CompressionLevel Fastest
+          Split-Zip -Zip dist/parts/GBVMonitor-full.zip
+
+      - name: Upload artifacts (app + model parts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: GBVMonitor-bundle
+          path: dist/parts/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Draft release with full bundle
+        if: env.PUBLISH_RELEASE == '1'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: portable-bundle-${{ github.run_number }}
+          name: Portable GBV Monitor bundle (run ${{ github.run_number }})
+          draft: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/parts/GBVMonitor-full.zip.*
+            dist/parts/GBVMonitor-app-no-model.zip.*
+            dist/parts/GBVMonitor-models.zip.*
+            dist/parts/GBVMonitor-full.zip
+            dist/parts/GBVMonitor-app-no-model.zip
+            dist/parts/GBVMonitor-models.zip
+
+      - name: Job summary (how to assemble)
+        if: always()
+        shell: pwsh
+        run: |
+          @"
+          ## Portable GBV Monitor bundle
+          Download **GBVMonitor-bundle** (or the draft release). Then:
+
+          1. Put all parts in ONE folder.
+          2. Reassemble (Windows CMD):
+             ``copy /b GBVMonitor-full.zip.001+GBVMonitor-full.zip.002+… GBVMonitor-full.zip``
+             (same pattern for `-models-` / `-app-no-model-` parts if you downloaded those instead)
+          3. Unzip **GBVMonitor-full.zip** anywhere (right-click → Extract All).
+          4. Double-click **GBVMonitor.exe** → console shows model loading → browser opens.
+
+          Alternatives:
+          - ``GBVMonitor-app-no-model.zip`` + ``GBVMonitor-models.zip.001…``: smaller download,
+            reassemble both and unzip into the SAME folder.
+          - The launcher also supports scheduler mode:
+            ``GBVMonitor.exe monitor run-due --enrich`` (see README).
+          "@ | Set-Content $env:GITHUB_STEP_SUMMARY

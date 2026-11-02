@@ -1,0 +1,10 @@
+output/
+__pycache__/
+*.py[cod]
+.agents/
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+.git/
+.gitignore

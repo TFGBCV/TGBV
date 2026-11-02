@@ -1,0 +1,6 @@
+# Build-time only requirements (portable exe bundle). App runtime deps live in requirements.txt.
+pyinstaller>=6.10,<8
+pyinstaller-hooks-contrib>=2024.10
+huggingface_hub>=0.34
+tqdm>=4.66
+requests>=2.31

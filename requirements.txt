@@ -1,0 +1,19 @@
+streamlit>=1.38
+pandas>=2.0
+playwright>=1.45
+requests>=2.31
+fpdf2>=2.8
+uharfbuzz>=0.5
+Pillow>=10.0
+numpy>=1.26
+networkx>=3.2
+
+# ---- optional (the tool starts and runs fully without these) ----------------
+# keyring        # store the SQLCipher key in the OS keyring (encryption.py)
+# pysqlcipher3   # SQLCipher driver for an encrypted case dataset at rest
+# python-docx    # (future) DOCX exports
+#
+# Notes:
+#  * playwright browsers are installed separately: `playwright install chromium`
+#  * DOM drift CI: record fixtures locally with tools/record_fixture.py, keep them
+#    in dom_fixtures/, and run tests/dom_smoke.py (needs playwright + chromium).

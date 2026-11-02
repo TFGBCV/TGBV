@@ -1,0 +1,49 @@
+name: tests
+
+# Fast, fully-offline safety net: the unit suite never touches the network or a
+# model server (stub engine), so it runs on every push. The DOM smoke tests replay
+# recorded HTML fixtures only when dom_fixtures/ exists — record them locally
+# (tools/record_fixture.py) and commit them (git-lfs or zipped) to enable.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Unit tests (offline, stub engine)
+        run: python tests/test_units.py
+
+  dom-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps + chromium
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: DOM smoke tests (recorded fixtures only)
+        run: |
+          if compgen -G 'dom_fixtures/*.html' > /dev/null; then
+            python tests/dom_smoke.py
+          else
+            echo "No fixtures recorded yet — skipping (record one with tools/record_fixture.py)."
+          fi

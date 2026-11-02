@@ -1,0 +1,21 @@
+# fb_gbv_monitor — "lab" deployment for activists & NGO workers.
+#
+# Requirement: LM Studio installed on the same computer with a model downloaded
+# and its local server started (Developer tab → Start Server).
+#
+# Run:
+#   docker compose up --build
+# then open http://localhost:8501
+services:
+  monitor:
+    build: .
+    container_name: fb-gbv-monitor
+    ports:
+      - "8501:8501"
+    # extra_hosts lets the container reach LM Studio via host.docker.internal
+    # (included by default on Docker Desktop; required on plain Linux)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./output:/app/output   # keep reports/screenshots on your machine
+    restart: unless-stopped

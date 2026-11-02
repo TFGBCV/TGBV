@@ -1,0 +1,29 @@
+# Python / build artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.pyi
+
+# build venvs (never portable, never committed)
+.venv*/
+venv/
+
+# heavy per-machine folders — downloaded by packaging/fetch_assets.py at build time
+models/
+runtime/
+bundle-browsers/
+ms-playwright/
+
+# local case data, reports, screenshots and engine logs — SENSITIVE, never push
+output/
+logs/
+*.log
+*.db
+
+# OS / download metadata junk
+*:Zone.Identifier
+Thumbs.db
+Desktop.ini
+.DS_Store
